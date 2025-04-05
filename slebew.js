@@ -25,17 +25,21 @@ const askQuestion = (query) => {
 
 // 1: Menambahkan Private Key
 const addPrivateKeys = async () => {
-    console.log("Masukkan private key satu per baris. Ketik 'end' jika selesai.");
+    console.log("Masukkan private key satu per baris. Ketik 'end' jika selesai:");
 
     const keys = [];
     while (true) {
         const input = await askQuestion("> ");
         if (input.toLowerCase() === "end") break;
-        if (!/^0x[a-fA-F0-9]{64}$/.test(input)) {
-            console.error("❌ Private key tidak valid. Abaikan input ini.");
-            continue;
+
+        const lines = input.split(/\s+/); // Pisahkan input per baris atau spasi
+        for (const line of lines) {
+            if (/^0x[a-fA-F0-9]{64}$/.test(line)) {
+                keys.push(line);
+            } else {
+                console.error(`❌ Private key tidak valid: ${line}`);
+            }
         }
-        keys.push(input);
     }
 
     if (keys.length === 0) {
@@ -54,17 +58,21 @@ const addPrivateKeys = async () => {
 
 // 2: Menambahkan Address
 const addAddresses = async () => {
-    console.log("Masukkan address penerima satu per baris. Ketik 'end' jika selesai.");
+    console.log("Masukkan address penerima satu per baris. Ketik 'end' jika selesai:");
 
     const addresses = [];
     while (true) {
         const input = await askQuestion("> ");
         if (input.toLowerCase() === "end") break;
-        if (!ethers.isAddress(input)) {
-            console.error("❌ Address tidak valid. Abaikan input ini.");
-            continue;
+
+        const lines = input.split(/\s+/); // Pisahkan input per baris atau spasi
+        for (const line of lines) {
+            if (ethers.isAddress(line)) {
+                addresses.push(line);
+            } else {
+                console.error(`❌ Address tidak valid: ${line}`);
+            }
         }
-        addresses.push(input);
     }
 
     if (addresses.length === 0) {
