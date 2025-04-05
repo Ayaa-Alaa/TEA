@@ -190,13 +190,14 @@ const sendTokens = async () => {
 
     for (const assignment of tokenAssignments) {
         const { privateKey, tokenAddress } = assignment;
+        console.log(`\n🔑 Memulai transaksi untuk Private Key: ${privateKey}`);
+        console.log(`📄 Token Kontrak yang Terhubung: ${tokenAddress}`);
+
         const wallet = new ethers.Wallet(privateKey, provider);
         const contract = new ethers.Contract(tokenAddress, ERC20_ABI, wallet);
         const decimals = Number(await contract.decimals());
 
-        const shuffledAddresses = zebra.addresses.sort(() => 0.5 - Math.random()).slice(0, 110);
-
-        for (const address of shuffledAddresses) {
+        for (const address of zebra.addresses) {
             const randomAmount = (
                 Math.random() * (tokenAmountRange.max - tokenAmountRange.min) + tokenAmountRange.min
             ).toFixed(decimals);
@@ -214,10 +215,15 @@ const sendTokens = async () => {
             ) * 1000;
             await new Promise((resolve) => setTimeout(resolve, randomDelay));
         }
+
+        console.log(`✅ Transaksi selesai untuk Private Key: ${privateKey}`);
     }
 
-    console.log("✅ Semua transaksi selesai. Menunggu 24 jam sebelum mengulang...");
-    setTimeout(sendTokens, 24 * 60 * 60 * 1000);
+    console.log("\n⏳ Semua transaksi selesai. Menunggu 24 jam sebelum mengulangi proses...");
+    await new Promise((resolve) => setTimeout(resolve, 24 * 60 * 60 * 1000));
+
+    // Panggil fungsi ini kembali untuk mengulang siklus
+    sendTokens();
 };
 
 // Menu Utama
