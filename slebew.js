@@ -24,37 +24,61 @@ const askQuestion = (query) => {
 };
 
 // 1: Menambahkan Private Key
-const addPrivateKey = async () => {
-    const privateKey = await askQuestion("Masukkan private key baru: ");
-    if (!/^0x[a-fA-F0-9]{64}$/.test(privateKey)) {
-        console.error("❌ Private key tidak valid.");
+const addPrivateKeys = async () => {
+    console.log("Masukkan private key satu per baris. Ketik 'end' jika selesai.");
+
+    const keys = [];
+    while (true) {
+        const input = await askQuestion("> ");
+        if (input.toLowerCase() === "end") break;
+        if (!/^0x[a-fA-F0-9]{64}$/.test(input)) {
+            console.error("❌ Private key tidak valid. Abaikan input ini.");
+            continue;
+        }
+        keys.push(input);
+    }
+
+    if (keys.length === 0) {
+        console.log("⚠️ Tidak ada private key yang valid untuk ditambahkan.");
         return;
     }
 
-    sebra.privateKeys.push(privateKey);
+    sebra.privateKeys.push(...keys);
     fs.writeFileSync(
         path.join(__dirname, "sebra.js"),
         `module.exports = ${JSON.stringify(sebra, null, 2)};`
     );
 
-    console.log("✅ Private key berhasil ditambahkan!");
+    console.log(`✅ ${keys.length} Private key berhasil ditambahkan!`);
 };
 
 // 2: Menambahkan Address
-const addAddress = async () => {
-    const address = await askQuestion("Masukkan address baru: ");
-    if (!ethers.isAddress(address)) {
-        console.error("❌ Address tidak valid.");
+const addAddresses = async () => {
+    console.log("Masukkan address penerima satu per baris. Ketik 'end' jika selesai.");
+
+    const addresses = [];
+    while (true) {
+        const input = await askQuestion("> ");
+        if (input.toLowerCase() === "end") break;
+        if (!ethers.isAddress(input)) {
+            console.error("❌ Address tidak valid. Abaikan input ini.");
+            continue;
+        }
+        addresses.push(input);
+    }
+
+    if (addresses.length === 0) {
+        console.log("⚠️ Tidak ada address yang valid untuk ditambahkan.");
         return;
     }
 
-    zebra.addresses.push(address);
+    zebra.addresses.push(...addresses);
     fs.writeFileSync(
         path.join(__dirname, "zebra.js"),
         `module.exports = ${JSON.stringify(zebra, null, 2)};`
     );
 
-    console.log("✅ Address berhasil ditambahkan!");
+    console.log(`✅ ${addresses.length} Address berhasil ditambahkan!`);
 };
 
 // 3: Menambahkan Token ERC-20 dan Mengatur Jumlah
@@ -142,9 +166,9 @@ const sendTokens = async () => {
         );
 
         if (action === "1") {
-            await addPrivateKey();
+            await addPrivateKeys();
         } else if (action === "2") {
-            await addAddress();
+            await addAddresses();
         } else if (action === "3") {
             await setTokenAndAmount();
         } else if (action === "4") {
