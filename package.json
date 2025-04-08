@@ -1,16 +1,22 @@
 {
-  "name": "teh-poci",
+  "name": "crypto-token-transactions",
   "version": "1.0.0",
+  "description": "Program untuk mengelola transaksi token ERC-20 dengan interval dan jumlah acak.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "dependencies": {
-    "dotenv": "^16.4.7",
-    "ethers": "^6.13.5"
-  }
+    "dotenv": "^16.0.3",
+    "ethers": "^6.0.0"
+  },
+  "devDependencies": {},
+  "keywords": [
+    "crypto",
+    "erc-20",
+    "ethers",
+    "token-transaction"
+  ],
+  "author": "Developer",
+  "license": "ISC"
 }
