@@ -3,10 +3,10 @@ const { ethers } = require("ethers");
 const readline = require("readline");
 const fs = require("fs");
 
-// Data global dari .env
+// Data global, diinisialisasi dari .env jika tersedia
 let config = {
-    privateKeys: process.env.PRIVATE_KEYS.split(",").map((key) => key.trim()),
-    tokenContracts: process.env.TOKEN_CONTRACTS.split(",").map((contract) => contract.trim()),
+    privateKeys: process.env.PRIVATE_KEYS ? process.env.PRIVATE_KEYS.split(",").map((key) => key.trim()) : [],
+    tokenContracts: process.env.TOKEN_CONTRACTS ? process.env.TOKEN_CONTRACTS.split(",").map((contract) => contract.trim()) : [],
     addresses: [],
     transactionSettings: {
         minToken: 0,
@@ -51,41 +51,64 @@ const askQuestion = (query) => {
     });
 };
 
-// Fungsi untuk memuat dan menyimpan address penerima
-const loadRecipientAddresses = () => {
-    try {
-        const data = fs.readFileSync("addresses.json", "utf-8");
-        return JSON.parse(data);
-    } catch (error) {
-        console.error("❌ Gagal memuat file 'addresses.json':", error.message);
-        return [];
-    }
+// Fungsi untuk memperbarui dan menyimpan file .env
+const updateEnvFile = () => {
+    const envData = `PRIVATE_KEYS=${config.privateKeys.join(",")}\nTOKEN_CONTRACTS=${config.tokenContracts.join(",")}\n`;
+    fs.writeFileSync(".env", envData);
+    console.log("✅ Data berhasil disimpan ke file .env.");
 };
 
+// Fungsi untuk menyimpan daftar address ke file
 const saveRecipientAddresses = (addresses) => {
     fs.writeFileSync("addresses.json", JSON.stringify(addresses, null, 2));
     console.log("✅ Address penerima berhasil disimpan ke file.");
 };
 
-// Sinkronisasi Data Token
-const synchronizeData = async () => {
-    for (let i = 0; i < config.privateKeys.length; i++) {
-        const wallet = new ethers.Wallet(config.privateKeys[i], provider);
-        const contract = new ethers.Contract(config.tokenContracts[i], ERC20_ABI, wallet);
-        
-        try {
-            const symbol = await contract.symbol();
-            const balance = await contract.balanceOf(wallet.address);
-            const gasFee = await provider.getBalance(wallet.address);
+// Langkah 1: Input Private Key dan Token Contract
+const addPrivateKeysAndContracts = async () => {
+    const input = await askQuestion(
+        "Masukkan daftar private key dan alamat smart contract token ERC-20, dipisahkan dengan tanda koma.\n" +
+        "Format: privateKey1,tokenContract1,privateKey2,tokenContract2,...\n" +
+        "Input: "
+    );
 
-            console.log(`✅ [${symbol}] Saldo Token: ${ethers.formatUnits(balance)} | Gas Fee: ${ethers.formatEther(gasFee)} ETH`);
-        } catch (error) {
-            console.error(`❌ Gagal sinkronisasi data untuk wallet ${wallet.address}:`, error.message);
+    const data = input.split(",").map((item) => item.trim());
+    if (data.length % 2 !== 0) {
+        console.error("❌ Jumlah private key dan alamat smart contract tidak sesuai.");
+        return;
+    }
+
+    for (let i = 0; i < data.length; i += 2) {
+        const privateKey = data[i];
+        const tokenAddress = data[i + 1];
+
+        if (/^0x[a-fA-F0-9]{64}$/.test(privateKey) && ethers.isAddress(tokenAddress)) {
+            config.privateKeys.push(privateKey);
+            config.tokenContracts.push(tokenAddress);
+
+            // Sinkronisasi data token
+            const wallet = new ethers.Wallet(privateKey, provider);
+            const contract = new ethers.Contract(tokenAddress, ERC20_ABI, wallet);
+            try {
+                const symbol = await contract.symbol();
+                const balance = await contract.balanceOf(wallet.address);
+                const gasFee = await provider.getBalance(wallet.address);
+
+                console.log(`✅ [${symbol}] Saldo Token: ${ethers.formatUnits(balance)} | Gas Fee: ${ethers.formatEther(gasFee)} ETH`);
+            } catch (error) {
+                console.error(`❌ Gagal sinkronisasi data untuk wallet ${wallet.address}:`, error.message);
+            }
+
+            console.log(`✅ Berhasil menambahkan: Private Key ${privateKey} dan Token Contract ${tokenAddress}`);
+        } else {
+            console.error(`❌ Data tidak valid: Private Key: ${privateKey}, Token Contract: ${tokenAddress}`);
         }
     }
+
+    updateEnvFile();
 };
 
-// Langkah 1: Input Address Penerima
+// Langkah 2: Input Address Penerima
 const addRecipientAddresses = async () => {
     const input = await askQuestion(
         "Masukkan daftar address penerima, dipisahkan dengan tanda koma atau baris baru (Enter).\n" +
@@ -104,7 +127,7 @@ const addRecipientAddresses = async () => {
     config.addresses = addresses;
 };
 
-// Langkah 2: Setting dan Jalankan Transaksi
+// Langkah 3: Setting dan Jalankan Transaksi
 const setTransactionSettingsAndRun = async () => {
     config.transactionSettings.minDelay = parseInt(await askQuestion("Masukkan interval delay minimum (detik): "));
     config.transactionSettings.maxDelay = parseInt(await askQuestion("Masukkan interval delay maksimum (detik): "));
@@ -154,14 +177,14 @@ const sendRandomizedTransactions = async (transactionCount) => {
 const mainMenu = async () => {
     while (true) {
         console.log("\nPilih opsi:");
-        console.log("1. Sinkronisasi Data (Dari .env)");
+        console.log("1. Isi Private Key dan Smart Contract");
         console.log("2. Isi Address Penerima");
         console.log("3. Atur dan Jalankan Transaksi");
         console.log("4. Keluar");
 
         const choice = await askQuestion("Pilihan Anda: ");
         if (choice === "1") {
-            await synchronizeData();
+            await addPrivateKeysAndContracts();
         } else if (choice === "2") {
             await addRecipientAddresses();
         } else if (choice === "3") {
