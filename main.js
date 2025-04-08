@@ -3,7 +3,7 @@ const { ethers } = require("ethers");
 const readline = require("readline");
 const fs = require("fs");
 
-// Data global, diinisialisasi dari .env jika tersedia
+// Data global
 let config = {
     privateKeys: process.env.PRIVATE_KEYS ? process.env.PRIVATE_KEYS.split(",").map((key) => key.trim()) : [],
     tokenContracts: process.env.TOKEN_CONTRACTS ? process.env.TOKEN_CONTRACTS.split(",").map((contract) => contract.trim()) : [],
@@ -56,6 +56,17 @@ const updateEnvFile = () => {
     const envData = `PRIVATE_KEYS=${config.privateKeys.join(",")}\nTOKEN_CONTRACTS=${config.tokenContracts.join(",")}\n`;
     fs.writeFileSync(".env", envData);
     console.log("✅ Data berhasil disimpan ke file .env.");
+};
+
+// Fungsi untuk memuat daftar address dari file
+const loadRecipientAddresses = () => {
+    try {
+        const data = fs.readFileSync("addresses.json", "utf-8");
+        return JSON.parse(data);
+    } catch (error) {
+        console.error("❌ Gagal memuat file 'addresses.json':", error.message);
+        return [];
+    }
 };
 
 // Fungsi untuk menyimpan daftar address ke file
