@@ -212,3 +212,4 @@ const mainMenu = async () => {
     console.log("\n🚀 Program dimulai...");
     mainMenu();
 })();
+
