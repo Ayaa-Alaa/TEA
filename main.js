@@ -13,7 +13,8 @@ let config = {
         maxToken: 0,
         minDelay: 0,
         maxDelay: 0,
-        maxTotalTransactions: 110, // Batas total transaksi per akun
+        batchSize: 10, // Jumlah transaksi per akun dalam satu batch
+        maxLoops: 11, // Total loop sebelum delay 24 jam
     },
 };
 
@@ -56,7 +57,6 @@ const addPrivateKeysAndContracts = async () => {
     const input = await askQuestion(
         "Masukkan daftar private key dan alamat smart contract token ERC-20, dipisahkan dengan tanda koma.\n" +
         "Format: privateKey1,tokenContract1,privateKey2,tokenContract2,...\n" +
-        "Contoh: 0xabc123,0xdef456,0xghi789,0xjkl012\n" +
         "Input: "
     );
 
@@ -122,18 +122,12 @@ const setTokenAmounts = async () => {
     console.log("✅ Jumlah token berhasil diatur!");
 };
 
-// Langkah 5: Jalankan Program
-const sendTokensInterleaved = async () => {
-    const maxTransactionsPerBatch = 10;
+// Langkah 5: Jalankan Program dengan Transaksi Silang
+const sendTokensInterleavedWithDelay = async () => {
     const totalAccounts = config.privateKeys.length;
-    const transactionsCount = Array(totalAccounts).fill(0); // Hitung total transaksi per akun
-
-    while (Math.max(...transactionsCount) < config.transactionSettings.maxTotalTransactions) {
+    for (let loopIndex = 0; loopIndex < config.transactionSettings.maxLoops; loopIndex++) {
+        console.log(`\n🔁 Mulai Loop ${loopIndex + 1} dari ${config.transactionSettings.maxLoops}`);
         for (let accountIndex = 0; accountIndex < totalAccounts; accountIndex++) {
-            if (transactionsCount[accountIndex] >= config.transactionSettings.maxTotalTransactions) {
-                continue; // Lewati akun jika sudah mencapai batas transaksi
-            }
-
             const privateKey = config.privateKeys[accountIndex];
             const tokenAddress = config.tokenContracts[accountIndex];
             const wallet = new ethers.Wallet(privateKey, provider);
@@ -141,13 +135,9 @@ const sendTokensInterleaved = async () => {
 
             const decimals = Number(await contract.decimals());
             const accountLabel = `Akun ${accountIndex + 1}`;
-            console.log(`\n🚀 Memulai batch transaksi untuk ${accountLabel}: ${wallet.address}`);
+            console.log(`\n🚀 Mulai transaksi untuk ${accountLabel}: ${wallet.address}`);
 
-            for (let transactionIndex = 0; transactionIndex < maxTransactionsPerBatch; transactionIndex++) {
-                if (transactionsCount[accountIndex] >= config.transactionSettings.maxTotalTransactions) {
-                    break; // Stop jika akun ini telah mencapai batas total transaksi
-                }
-
+            for (let transactionIndex = 0; transactionIndex < config.transactionSettings.batchSize; transactionIndex++) {
                 for (const address of config.addresses) {
                     const randomAmount = (
                         Math.random() *
@@ -158,15 +148,12 @@ const sendTokensInterleaved = async () => {
                     try {
                         const tx = await contract.transfer(address, ethers.parseUnits(randomAmount, decimals));
                         console.log(
-                            `✅ Akun ${accountLabel}, Transaksi ${transactionsCount[accountIndex] + 1}: ` +
-                            `${randomAmount} token ke ${address}. Tx Hash: ${tx.hash}`
+                            `✅ ${accountLabel}, Transaksi ${transactionIndex + 1}: ${randomAmount} token ke ${address}. Tx Hash: ${tx.hash}`
                         );
                         await tx.wait();
-                        transactionsCount[accountIndex]++;
                     } catch (error) {
                         console.error(
-                            `❌ Akun ${accountLabel}, Transaksi ${transactionsCount[accountIndex] + 1}: ` +
-                            `Gagal mengirim token ke ${address}: ${error.message}`
+                            `❌ ${accountLabel}, Transaksi ${transactionIndex + 1}: Gagal mengirim token ke ${address}: ${error.message}`
                         );
                     }
 
@@ -179,9 +166,14 @@ const sendTokensInterleaved = async () => {
                 }
             }
         }
+
+        console.log("\n⏳ Delay selama 5 menit sebelum loop berikutnya...");
+        await new Promise((resolve) => setTimeout(resolve, 5 * 60 * 1000));
     }
 
-    console.log("✅ Semua transaksi selesai!");
+    console.log("\n⏳ Delay selama 24 jam sebelum memulai proses kembali...");
+    await new Promise((resolve) => setTimeout(resolve, 24 * 60 * 60 * 1000));
+    console.log("✅ Semua proses transaksi selesai!");
 };
 
 // Menu Utama
@@ -205,7 +197,7 @@ const mainMenu = async () => {
         } else if (choice === "4") {
             await setTokenAmounts();
         } else if (choice === "5") {
-            await sendTokensInterleaved();
+            await sendTokensInterleavedWithDelay();
         } else if (choice === "6") {
             console.log("🚀 Program selesai. Sampai jumpa!");
             break;
