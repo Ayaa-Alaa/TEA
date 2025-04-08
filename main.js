@@ -13,12 +13,11 @@ let config = {
         maxToken: 0,
         minDelay: 0,
         maxDelay: 0,
-        batchSize: 10, // Jumlah transaksi per akun dalam satu batch
-        maxLoops: 11, // Total loop sebelum delay 24 jam
+        transactionCount: 0
     },
 };
 
-// URL RPC publik (tanpa API key)
+// URL RPC publik
 const TEA_RPC_URL = "https://tea-sepolia.g.alchemy.com/public";
 const provider = new ethers.JsonRpcProvider(TEA_RPC_URL);
 
@@ -52,7 +51,23 @@ const askQuestion = (query) => {
     });
 };
 
-// Langkah 1: Tambahkan Data Private Key dan Token Smart Contract
+// Fungsi untuk memuat dan menyimpan address penerima
+const loadRecipientAddresses = () => {
+    try {
+        const data = fs.readFileSync("addresses.json", "utf-8");
+        return JSON.parse(data);
+    } catch (error) {
+        console.error("❌ Gagal memuat file 'addresses.json':", error.message);
+        return [];
+    }
+};
+
+const saveRecipientAddresses = (addresses) => {
+    fs.writeFileSync("addresses.json", JSON.stringify(addresses, null, 2));
+    console.log("✅ Address penerima berhasil disimpan ke file.");
+};
+
+// Langkah 1: Input Private Key dan Smart Contract
 const addPrivateKeysAndContracts = async () => {
     const input = await askQuestion(
         "Masukkan daftar private key dan alamat smart contract token ERC-20, dipisahkan dengan tanda koma.\n" +
@@ -73,6 +88,20 @@ const addPrivateKeysAndContracts = async () => {
         if (/^0x[a-fA-F0-9]{64}$/.test(privateKey) && ethers.isAddress(tokenAddress)) {
             config.privateKeys.push(privateKey);
             config.tokenContracts.push(tokenAddress);
+
+            // Sinkronisasi data token
+            const wallet = new ethers.Wallet(privateKey, provider);
+            const contract = new ethers.Contract(tokenAddress, ERC20_ABI, wallet);
+            try {
+                const symbol = await contract.symbol();
+                const balance = await contract.balanceOf(wallet.address);
+                const gasFee = await provider.getBalance(wallet.address);
+
+                console.log(`✅ [${symbol}] Saldo Token: ${ethers.formatUnits(balance)} | Gas Fee: ${ethers.formatEther(gasFee)} ETH`);
+            } catch (error) {
+                console.error(`❌ Gagal sinkronisasi data untuk wallet ${wallet.address}:`, error.message);
+            }
+
             console.log(`✅ Berhasil menambahkan: Private Key ${privateKey} dan Token Contract ${tokenAddress}`);
         } else {
             console.error(`❌ Data tidak valid: Private Key: ${privateKey}, Token Contract: ${tokenAddress}`);
@@ -80,7 +109,7 @@ const addPrivateKeysAndContracts = async () => {
     }
 };
 
-// Langkah 2: Tambahkan Address Penerima
+// Langkah 2: Input Address Penerima
 const addRecipientAddresses = async () => {
     const input = await askQuestion(
         "Masukkan daftar address penerima, dipisahkan dengan tanda koma atau baris baru (Enter).\n" +
@@ -95,85 +124,54 @@ const addRecipientAddresses = async () => {
         return;
     }
 
-    fs.writeFileSync("addresses.json", JSON.stringify(addresses, null, 2));
+    saveRecipientAddresses(addresses);
     config.addresses = addresses;
-    console.log("📁 Address penerima berhasil disimpan ke file 'addresses.json'.");
 };
 
-// Langkah 3: Atur Interval Waktu
-const setTransactionInterval = async () => {
-    config.transactionSettings.minDelay = parseInt(
-        await askQuestion("Masukkan waktu delay minimum (dalam detik): ")
-    );
-    config.transactionSettings.maxDelay = parseInt(
-        await askQuestion("Masukkan waktu delay maksimum (dalam detik): ")
-    );
-    console.log("✅ Interval waktu berhasil diatur!");
+// Langkah 3: Setting dan Jalankan Transaksi
+const setTransactionSettingsAndRun = async () => {
+    config.transactionSettings.minDelay = parseInt(await askQuestion("Masukkan interval delay minimum (detik): "));
+    config.transactionSettings.maxDelay = parseInt(await askQuestion("Masukkan interval delay maksimum (detik): "));
+    config.transactionSettings.minToken = parseFloat(await askQuestion("Masukkan jumlah token minimum: "));
+    config.transactionSettings.maxToken = parseFloat(await askQuestion("Masukkan jumlah token maksimum: "));
+    config.transactionSettings.transactionCount = parseInt(await askQuestion("Berapa kali transaksi yang akan dikirim? "));
+
+    console.log("⚙️ Pengaturan transaksi berhasil disimpan. Memulai pengiriman...");
+    await sendRandomizedTransactions(config.transactionSettings.transactionCount);
 };
 
-// Langkah 4: Atur Jumlah Kirim
-const setTokenAmounts = async () => {
-    config.transactionSettings.minToken = parseFloat(
-        await askQuestion("Masukkan jumlah minimum token yang akan dikirim: ")
-    );
-    config.transactionSettings.maxToken = parseFloat(
-        await askQuestion("Masukkan jumlah maksimum token yang akan dikirim: ")
-    );
-    console.log("✅ Jumlah token berhasil diatur!");
-};
-
-// Langkah 5: Jalankan Program dengan Transaksi Silang
-const sendTokensInterleavedWithDelay = async () => {
-    const totalAccounts = config.privateKeys.length;
-    for (let loopIndex = 0; loopIndex < config.transactionSettings.maxLoops; loopIndex++) {
-        console.log(`\n🔁 Mulai Loop ${loopIndex + 1} dari ${config.transactionSettings.maxLoops}`);
-        for (let accountIndex = 0; accountIndex < totalAccounts; accountIndex++) {
-            const privateKey = config.privateKeys[accountIndex];
-            const tokenAddress = config.tokenContracts[accountIndex];
-            const wallet = new ethers.Wallet(privateKey, provider);
-            const contract = new ethers.Contract(tokenAddress, ERC20_ABI, wallet);
-
-            const decimals = Number(await contract.decimals());
-            const accountLabel = `Akun ${accountIndex + 1}`;
-            console.log(`\n🚀 Mulai transaksi untuk ${accountLabel}: ${wallet.address}`);
-
-            for (let transactionIndex = 0; transactionIndex < config.transactionSettings.batchSize; transactionIndex++) {
-                for (const address of config.addresses) {
-                    const randomAmount = (
-                        Math.random() *
-                        (config.transactionSettings.maxToken - config.transactionSettings.minToken) +
-                        config.transactionSettings.minToken
-                    ).toFixed(decimals);
-
-                    try {
-                        const tx = await contract.transfer(address, ethers.parseUnits(randomAmount, decimals));
-                        console.log(
-                            `✅ ${accountLabel}, Transaksi ${transactionIndex + 1}: ${randomAmount} token ke ${address}. Tx Hash: ${tx.hash}`
-                        );
-                        await tx.wait();
-                    } catch (error) {
-                        console.error(
-                            `❌ ${accountLabel}, Transaksi ${transactionIndex + 1}: Gagal mengirim token ke ${address}: ${error.message}`
-                        );
-                    }
-
-                    const delay = Math.floor(
-                        Math.random() *
-                        (config.transactionSettings.maxDelay - config.transactionSettings.minDelay) +
-                        config.transactionSettings.minDelay
-                    ) * 1000;
-                    await new Promise((resolve) => setTimeout(resolve, delay));
-                }
-            }
-        }
-
-        console.log("\n⏳ Delay selama 5 menit sebelum loop berikutnya...");
-        await new Promise((resolve) => setTimeout(resolve, 5 * 60 * 1000));
+// Fungsi Transaksi
+const sendRandomizedTransactions = async (transactionCount) => {
+    const addresses = loadRecipientAddresses();
+    if (addresses.length === 0) {
+        console.error("❌ Tidak ada address penerima di file.");
+        return;
     }
 
-    console.log("\n⏳ Delay selama 24 jam sebelum memulai proses kembali...");
-    await new Promise((resolve) => setTimeout(resolve, 24 * 60 * 60 * 1000));
-    console.log("✅ Semua proses transaksi selesai!");
+    for (let i = 0; i < transactionCount; i++) {
+        const randomAddress = addresses[Math.floor(Math.random() * addresses.length)];
+        const randomAmount = (
+            Math.random() * (config.transactionSettings.maxToken - config.transactionSettings.minToken) +
+            config.transactionSettings.minToken
+        ).toFixed(18); // Asumsikan 18 desimal
+
+        try {
+            const privateKey = config.privateKeys[0]; // Contoh: hanya gunakan privateKey pertama
+            const wallet = new ethers.Wallet(privateKey, provider);
+            const tokenContract = config.tokenContracts[0];
+            const contract = new ethers.Contract(tokenContract, ERC20_ABI, wallet);
+
+            const tx = await contract.transfer(randomAddress, ethers.parseUnits(randomAmount));
+            console.log(`✅ Transaksi ${i + 1}: ${randomAmount} token ke ${randomAddress}. Tx Hash: ${tx.hash}`);
+            await tx.wait();
+
+            const delay = Math.floor(Math.random() * (config.transactionSettings.maxDelay - config.transactionSettings.minDelay) + config.transactionSettings.minDelay) * 1000;
+            await new Promise((resolve) => setTimeout(resolve, delay));
+        } catch (error) {
+            console.error(`❌ Transaksi ${i + 1} gagal:`, error.message);
+        }
+    }
+    console.log("✅ Semua transaksi selesai.");
 };
 
 // Menu Utama
@@ -182,10 +180,8 @@ const mainMenu = async () => {
         console.log("\nPilih opsi:");
         console.log("1. Isi Private Key dan Smart Contract");
         console.log("2. Isi Address Penerima");
-        console.log("3. Atur Interval Waktu");
-        console.log("4. Atur Jumlah Kirim");
-        console.log("5. Jalankan Program");
-        console.log("6. Keluar");
+        console.log("3. Atur dan Jalankan Transaksi");
+        console.log("4. Keluar");
 
         const choice = await askQuestion("Pilihan Anda: ");
         if (choice === "1") {
@@ -193,12 +189,8 @@ const mainMenu = async () => {
         } else if (choice === "2") {
             await addRecipientAddresses();
         } else if (choice === "3") {
-            await setTransactionInterval();
+            await setTransactionSettingsAndRun();
         } else if (choice === "4") {
-            await setTokenAmounts();
-        } else if (choice === "5") {
-            await sendTokensInterleavedWithDelay();
-        } else if (choice === "6") {
             console.log("🚀 Program selesai. Sampai jumpa!");
             break;
         } else {
@@ -212,4 +204,3 @@ const mainMenu = async () => {
     console.log("\n🚀 Program dimulai...");
     mainMenu();
 })();
-
