@@ -21,6 +21,14 @@ let config = {
 const TEA_RPC_URL = "https://tea-sepolia.g.alchemy.com/public";
 const provider = new ethers.JsonRpcProvider(TEA_RPC_URL);
 
+// Definisi ABI ERC-20
+const ERC20_ABI = [
+    "function balanceOf(address owner) view returns (uint256)",
+    "function transfer(address to, uint256 amount) public returns (bool)",
+    "function decimals() view returns (uint8)",
+    "function symbol() view returns (string)"
+];
+
 // Validasi koneksi ke RPC
 const validateRPCConnection = async () => {
     try {
