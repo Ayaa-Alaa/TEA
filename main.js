@@ -22,19 +22,15 @@ const TEA_RPC_URL = "https://tea-sepolia.g.alchemy.com/public";
 const provider = new ethers.JsonRpcProvider(TEA_RPC_URL);
 
 // Validasi koneksi ke RPC
-provider.getNetwork()
-    .then((network) => console.log(`✅ Terhubung ke jaringan: ${network.name} (${network.chainId})`))
-    .catch((error) => {
+const validateRPCConnection = async () => {
+    try {
+        const network = await provider.getNetwork();
+        console.log(`✅ Terhubung ke jaringan: ${network.name} (${network.chainId})`);
+    } catch (error) {
         console.error("❌ Gagal terhubung ke jaringan:", error.message);
         process.exit(1);
-    });
-
-const ERC20_ABI = [
-    "function balanceOf(address owner) view returns (uint256)",
-    "function transfer(address to, uint256 amount) public returns (bool)",
-    "function decimals() view returns (uint8)",
-    "function symbol() view returns (string)"
-];
+    }
+};
 
 // Fungsi untuk input data dari user
 const askQuestion = (query) => {
@@ -56,30 +52,6 @@ const updateEnvFile = () => {
     const envData = `PRIVATE_KEYS=${config.privateKeys.join(",")}\nTOKEN_CONTRACTS=${config.tokenContracts.join(",")}\n`;
     fs.writeFileSync(".env", envData);
     console.log("✅ Data berhasil disimpan ke file .env.");
-};
-
-// Fungsi untuk menambahkan private key
-const addPrivateKey = async () => {
-    const privateKey = await askQuestion("Masukkan Private Key: ");
-    if (/^0x[a-fA-F0-9]{64}$/.test(privateKey)) {
-        config.privateKeys.push(privateKey);
-        console.log(`✅ Private Key berhasil ditambahkan: ${privateKey}`);
-        updateEnvFile();
-    } else {
-        console.error("❌ Private Key tidak valid. Silakan coba lagi.");
-    }
-};
-
-// Fungsi untuk menambahkan token kontrak
-const addTokenContract = async () => {
-    const tokenAddress = await askQuestion("Masukkan alamat Token Contract ERC-20: ");
-    if (ethers.isAddress(tokenAddress)) {
-        config.tokenContracts.push(tokenAddress);
-        console.log(`✅ Token Contract berhasil ditambahkan: ${tokenAddress}`);
-        updateEnvFile();
-    } else {
-        console.error("❌ Alamat Token Contract tidak valid. Silakan coba lagi.");
-    }
 };
 
 // Fungsi untuk memuat daftar address dari file
@@ -106,7 +78,7 @@ const synchronizeData = async () => {
         return;
     }
 
-    console.log("🔄 Sinkronisasi data...");
+    console.log("🔄 Sinkronisasi data dengan jaringan TEA Sepolia...");
     for (let i = 0; i < config.privateKeys.length; i++) {
         const privateKey = config.privateKeys[i];
         const tokenAddress = config.tokenContracts[i];
@@ -129,8 +101,43 @@ const synchronizeData = async () => {
     }
 };
 
-// Atur dan Jalankan Transaksi
-const setTransactionSettingsAndRun = async () => {
+// Fungsi untuk input private key dan token kontrak
+const inputPrivateKeyAndContract = async () => {
+    const privateKey = await askQuestion("Masukkan Private Key: ");
+    const tokenAddress = await askQuestion("Masukkan alamat Token Contract ERC-20: ");
+
+    if (/^0x[a-fA-F0-9]{64}$/.test(privateKey) && ethers.isAddress(tokenAddress)) {
+        config.privateKeys.push(privateKey);
+        config.tokenContracts.push(tokenAddress);
+        console.log(`✅ Private Key dan Token Contract berhasil ditambahkan.`);
+        updateEnvFile();
+    } else {
+        console.error("❌ Data tidak valid. Silakan coba lagi.");
+    }
+};
+
+// Fungsi untuk input address penerima
+const inputRecipientAddresses = async () => {
+    const input = await askQuestion(
+        "Masukkan daftar address penerima, dipisahkan dengan tanda koma atau baris baru (Enter):\n"
+    );
+    const addresses = input.split(/[\s,]+/).filter((address) => address.trim() !== "");
+
+    const invalidAddresses = addresses.filter((addr) => !ethers.isAddress(addr));
+    if (invalidAddresses.length > 0) {
+        console.error("❌ Alamat-alamat berikut tidak valid:");
+        invalidAddresses.forEach((addr) => console.error(`- ${addr}`));
+        return;
+    }
+
+    saveRecipientAddresses(addresses);
+    config.addresses = addresses;
+};
+
+// Fungsi untuk mengatur dan memulai transaksi
+const setTransactionSettingsAndStart = async () => {
+    await synchronizeData(); // Sinkronisasi jaringan dan data token
+
     config.transactionSettings.minDelay = parseInt(await askQuestion("Masukkan interval delay minimum (detik): "));
     config.transactionSettings.maxDelay = parseInt(await askQuestion("Masukkan interval delay maksimum (detik): "));
     config.transactionSettings.minToken = parseFloat(await askQuestion("Masukkan jumlah token minimum: "));
@@ -138,66 +145,71 @@ const setTransactionSettingsAndRun = async () => {
     config.transactionSettings.transactionCount = parseInt(await askQuestion("Berapa kali transaksi yang akan dikirim? "));
 
     console.log("⚙️ Pengaturan transaksi berhasil disimpan. Memulai pengiriman...");
-    await sendRandomizedTransactions(config.transactionSettings.transactionCount);
+    await loopTransactions();
 };
 
-// Fungsi Transaksi
-const sendRandomizedTransactions = async (transactionCount) => {
+// Fungsi Looping Transaksi
+const loopTransactions = async () => {
+    const startTime = Date.now();
     const addresses = loadRecipientAddresses();
+
     if (addresses.length === 0) {
         console.error("❌ Tidak ada address penerima di file.");
         return;
     }
 
-    for (let i = 0; i < transactionCount; i++) {
-        const randomAddress = addresses[Math.floor(Math.random() * addresses.length)];
-        const randomAmount = (
-            Math.random() * (config.transactionSettings.maxToken - config.transactionSettings.minToken) +
-            config.transactionSettings.minToken
-        ).toFixed(18); // Asumsikan 18 desimal
+    while ((Date.now() - startTime) < (24 * 60 * 60 * 1000)) { // Looping selama kurang dari 24 jam
+        for (let i = 0; i < config.transactionSettings.transactionCount; i++) {
+            const randomAddress = addresses[Math.floor(Math.random() * addresses.length)];
+            const randomAmount = (
+                Math.random() * (config.transactionSettings.maxToken - config.transactionSettings.minToken) +
+                config.transactionSettings.minToken
+            ).toFixed(18);
 
-        try {
-            const privateKey = config.privateKeys[0]; // Contoh: hanya gunakan privateKey pertama
-            const wallet = new ethers.Wallet(privateKey, provider);
-            const tokenContract = config.tokenContracts[0];
-            const contract = new ethers.Contract(tokenContract, ERC20_ABI, wallet);
+            try {
+                const privateKey = config.privateKeys[0]; // Contoh menggunakan privateKey pertama
+                const wallet = new ethers.Wallet(privateKey, provider);
+                const tokenContract = config.tokenContracts[0];
+                const contract = new ethers.Contract(tokenContract, ERC20_ABI, wallet);
 
-            const tx = await contract.transfer(randomAddress, ethers.parseUnits(randomAmount));
-            console.log(`✅ Transaksi ${i + 1}: ${randomAmount} token ke ${randomAddress}. Tx Hash: ${tx.hash}`);
-            await tx.wait();
+                const tx = await contract.transfer(randomAddress, ethers.parseUnits(randomAmount));
+                console.log(`✅ Transaksi: ${randomAmount} token ke ${randomAddress}. Tx Hash: ${tx.hash}`);
+                await tx.wait();
 
-            const delay = Math.floor(Math.random() * (config.transactionSettings.maxDelay - config.transactionSettings.minDelay) + config.transactionSettings.minDelay) * 1000;
-            await new Promise((resolve) => setTimeout(resolve, delay));
-        } catch (error) {
-            console.error(`❌ Transaksi ${i + 1} gagal:`, error.message);
+                const delay = Math.floor(
+                    Math.random() * (config.transactionSettings.maxDelay - config.transactionSettings.minDelay) +
+                    config.transactionSettings.minDelay
+                ) * 1000;
+                await new Promise((resolve) => setTimeout(resolve, delay));
+            } catch (error) {
+                console.error(`❌ Transaksi gagal:`, error.message);
+            }
         }
+        console.log("🔄 Looping transaksi berikutnya dimulai...");
     }
-    console.log("✅ Semua transaksi selesai.");
+
+    console.log("⏳ Semua transaksi selesai dalam 24 jam.");
 };
 
 // Menu Utama
 const mainMenu = async () => {
+    await validateRPCConnection(); // Validasi koneksi RPC
+
     while (true) {
         console.log("\nPilih opsi:");
-        console.log("1. Tambah Private Key");
-        console.log("2. Tambah Token Contract");
-        console.log("3. Sinkronisasi Data");
-        console.log("4. Isi Address Penerima");
-        console.log("5. Atur dan Jalankan Transaksi");
-        console.log("6. Keluar");
+        console.log("1. Input Private Key dan Token Contract");
+        console.log("2. Input Address Penerima");
+        console.log("3. Atur dan Mulai Transaksi");
+        console.log("4. Keluar");
 
         const choice = await askQuestion("Pilihan Anda: ");
         if (choice === "1") {
-            await addPrivateKey();
+            await inputPrivateKeyAndContract();
         } else if (choice === "2") {
-            await addTokenContract();
+            await inputRecipientAddresses();
         } else if (choice === "3") {
-            await synchronizeData();
+            await setTransactionSettingsAndStart();
         } else if (choice === "4") {
-            await addRecipientAddresses();
-        } else if (choice === "5") {
-            await setTransactionSettingsAndRun();
-        } else if (choice === "6") {
             console.log("🚀 Program selesai. Sampai jumpa!");
             break;
         } else {
