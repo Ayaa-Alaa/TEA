@@ -58,6 +58,30 @@ const updateEnvFile = () => {
     console.log("✅ Data berhasil disimpan ke file .env.");
 };
 
+// Fungsi untuk menambahkan private key
+const addPrivateKey = async () => {
+    const privateKey = await askQuestion("Masukkan Private Key: ");
+    if (/^0x[a-fA-F0-9]{64}$/.test(privateKey)) {
+        config.privateKeys.push(privateKey);
+        console.log(`✅ Private Key berhasil ditambahkan: ${privateKey}`);
+        updateEnvFile();
+    } else {
+        console.error("❌ Private Key tidak valid. Silakan coba lagi.");
+    }
+};
+
+// Fungsi untuk menambahkan token kontrak
+const addTokenContract = async () => {
+    const tokenAddress = await askQuestion("Masukkan alamat Token Contract ERC-20: ");
+    if (ethers.isAddress(tokenAddress)) {
+        config.tokenContracts.push(tokenAddress);
+        console.log(`✅ Token Contract berhasil ditambahkan: ${tokenAddress}`);
+        updateEnvFile();
+    } else {
+        console.error("❌ Alamat Token Contract tidak valid. Silakan coba lagi.");
+    }
+};
+
 // Fungsi untuk memuat daftar address dari file
 const loadRecipientAddresses = () => {
     try {
@@ -75,70 +99,37 @@ const saveRecipientAddresses = (addresses) => {
     console.log("✅ Address penerima berhasil disimpan ke file.");
 };
 
-// Langkah 1: Input Private Key dan Token Contract
-const addPrivateKeysAndContracts = async () => {
-    const input = await askQuestion(
-        "Masukkan daftar private key dan alamat smart contract token ERC-20, dipisahkan dengan tanda koma.\n" +
-        "Format: privateKey1,tokenContract1,privateKey2,tokenContract2,...\n" +
-        "Input: "
-    );
-
-    const data = input.split(",").map((item) => item.trim());
-    if (data.length % 2 !== 0) {
-        console.error("❌ Jumlah private key dan alamat smart contract tidak sesuai.");
+// Sinkronisasi Data
+const synchronizeData = async () => {
+    if (config.privateKeys.length === 0 || config.tokenContracts.length === 0) {
+        console.error("❌ Tidak ada Private Key atau Token Contract yang diinput.");
         return;
     }
 
-    for (let i = 0; i < data.length; i += 2) {
-        const privateKey = data[i];
-        const tokenAddress = data[i + 1];
+    console.log("🔄 Sinkronisasi data...");
+    for (let i = 0; i < config.privateKeys.length; i++) {
+        const privateKey = config.privateKeys[i];
+        const tokenAddress = config.tokenContracts[i];
+        const wallet = new ethers.Wallet(privateKey, provider);
+        const contract = new ethers.Contract(tokenAddress, ERC20_ABI, wallet);
 
-        if (/^0x[a-fA-F0-9]{64}$/.test(privateKey) && ethers.isAddress(tokenAddress)) {
-            config.privateKeys.push(privateKey);
-            config.tokenContracts.push(tokenAddress);
+        try {
+            const symbol = await contract.symbol();
+            const balance = await contract.balanceOf(wallet.address);
+            const gasFee = await provider.getBalance(wallet.address);
 
-            // Sinkronisasi data token
-            const wallet = new ethers.Wallet(privateKey, provider);
-            const contract = new ethers.Contract(tokenAddress, ERC20_ABI, wallet);
-            try {
-                const symbol = await contract.symbol();
-                const balance = await contract.balanceOf(wallet.address);
-                const gasFee = await provider.getBalance(wallet.address);
-
-                console.log(`✅ [${symbol}] Saldo Token: ${ethers.formatUnits(balance)} | Gas Fee: ${ethers.formatEther(gasFee)} ETH`);
-            } catch (error) {
-                console.error(`❌ Gagal sinkronisasi data untuk wallet ${wallet.address}:`, error.message);
-            }
-
-            console.log(`✅ Berhasil menambahkan: Private Key ${privateKey} dan Token Contract ${tokenAddress}`);
-        } else {
-            console.error(`❌ Data tidak valid: Private Key: ${privateKey}, Token Contract: ${tokenAddress}`);
+            console.log(`✅ Akun ${i + 1}:`);
+            console.log(`   - Wallet Address: ${wallet.address}`);
+            console.log(`   - Token Symbol: ${symbol}`);
+            console.log(`   - Saldo Token: ${ethers.formatUnits(balance)} ${symbol}`);
+            console.log(`   - Gas Fee: ${ethers.formatEther(gasFee)} ETH`);
+        } catch (error) {
+            console.error(`❌ Gagal sinkronisasi untuk Akun ${i + 1}:`, error.message);
         }
     }
-
-    updateEnvFile();
 };
 
-// Langkah 2: Input Address Penerima
-const addRecipientAddresses = async () => {
-    const input = await askQuestion(
-        "Masukkan daftar address penerima, dipisahkan dengan tanda koma atau baris baru (Enter).\n" +
-        "Input: "
-    );
-
-    const addresses = input.split(/[\s,]+/).filter((address) => address.trim() !== "");
-    const invalidAddresses = addresses.filter((addr) => !ethers.isAddress(addr));
-    if (invalidAddresses.length > 0) {
-        console.error("❌ Alamat-alamat berikut tidak valid:");
-        invalidAddresses.forEach((addr) => console.error(`- ${addr}`));
-        return;
-    }
-
-    saveRecipientAddresses(addresses);
-    config.addresses = addresses;
-};
-
-// Langkah 3: Setting dan Jalankan Transaksi
+// Atur dan Jalankan Transaksi
 const setTransactionSettingsAndRun = async () => {
     config.transactionSettings.minDelay = parseInt(await askQuestion("Masukkan interval delay minimum (detik): "));
     config.transactionSettings.maxDelay = parseInt(await askQuestion("Masukkan interval delay maksimum (detik): "));
@@ -150,7 +141,7 @@ const setTransactionSettingsAndRun = async () => {
     await sendRandomizedTransactions(config.transactionSettings.transactionCount);
 };
 
-// Fungsi Transaksi dengan Looping 24 Jam
+// Fungsi Transaksi
 const sendRandomizedTransactions = async (transactionCount) => {
     const addresses = loadRecipientAddresses();
     if (addresses.length === 0) {
@@ -181,30 +172,32 @@ const sendRandomizedTransactions = async (transactionCount) => {
             console.error(`❌ Transaksi ${i + 1} gagal:`, error.message);
         }
     }
-
-    console.log("\n⏳ Semua transaksi selesai. Delay selama 24 jam sebelum memulai proses berikutnya...");
-    await new Promise((resolve) => setTimeout(resolve, 24 * 60 * 60 * 1000)); // Delay 24 jam
-    console.log("🚀 Memulai ulang proses transaksi!");
-    await sendRandomizedTransactions(transactionCount); // Looping kembali
+    console.log("✅ Semua transaksi selesai.");
 };
 
 // Menu Utama
 const mainMenu = async () => {
     while (true) {
         console.log("\nPilih opsi:");
-        console.log("1. Isi Private Key dan Smart Contract");
-        console.log("2. Isi Address Penerima");
-        console.log("3. Atur dan Jalankan Transaksi");
-        console.log("4. Keluar");
+        console.log("1. Tambah Private Key");
+        console.log("2. Tambah Token Contract");
+        console.log("3. Sinkronisasi Data");
+        console.log("4. Isi Address Penerima");
+        console.log("5. Atur dan Jalankan Transaksi");
+        console.log("6. Keluar");
 
         const choice = await askQuestion("Pilihan Anda: ");
         if (choice === "1") {
-            await addPrivateKeysAndContracts();
+            await addPrivateKey();
         } else if (choice === "2") {
-            await addRecipientAddresses();
+            await addTokenContract();
         } else if (choice === "3") {
-            await setTransactionSettingsAndRun();
+            await synchronizeData();
         } else if (choice === "4") {
+            await addRecipientAddresses();
+        } else if (choice === "5") {
+            await setTransactionSettingsAndRun();
+        } else if (choice === "6") {
             console.log("🚀 Program selesai. Sampai jumpa!");
             break;
         } else {
