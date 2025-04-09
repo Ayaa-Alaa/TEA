@@ -150,7 +150,7 @@ const setTransactionSettingsAndRun = async () => {
     await sendRandomizedTransactions(config.transactionSettings.transactionCount);
 };
 
-// Fungsi Transaksi
+// Fungsi Transaksi dengan Looping 24 Jam
 const sendRandomizedTransactions = async (transactionCount) => {
     const addresses = loadRecipientAddresses();
     if (addresses.length === 0) {
@@ -181,7 +181,11 @@ const sendRandomizedTransactions = async (transactionCount) => {
             console.error(`❌ Transaksi ${i + 1} gagal:`, error.message);
         }
     }
-    console.log("✅ Semua transaksi selesai.");
+
+    console.log("\n⏳ Semua transaksi selesai. Delay selama 24 jam sebelum memulai proses berikutnya...");
+    await new Promise((resolve) => setTimeout(resolve, 24 * 60 * 60 * 1000)); // Delay 24 jam
+    console.log("🚀 Memulai ulang proses transaksi!");
+    await sendRandomizedTransactions(transactionCount); // Looping kembali
 };
 
 // Menu Utama
