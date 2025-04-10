@@ -17,9 +17,37 @@ let config = {
     },
 };
 
-// URL RPC publik
-const TEA_RPC_URL = "https://tea-sepolia.g.alchemy.com/public";
-const provider = new ethers.JsonRpcProvider(TEA_RPC_URL);
+// Daftar RPC yang tersedia
+let RPC_URLS = [
+    "https://tea-sepolia.g.alchemy.com/public", // RPC Default
+    "https://tea-sepolia.g.alchemy.com/v2/TnWZWAFaF3TQkYJV-LvoYIaUH1aNsTf8" // RPC Alternatif
+];
+
+// Fungsi untuk mencoba koneksi ke berbagai RPC
+const getResponsiveProvider = async () => {
+    for (const url of RPC_URLS) {
+        try {
+            const provider = new ethers.JsonRpcProvider(url);
+            const network = await provider.getNetwork();
+            console.log(`✅ Terhubung ke RPC: ${url} (${network.name}, chainId: ${network.chainId})`);
+            return provider; // Kembalikan provider yang responsif
+        } catch (error) {
+            console.error(`❌ Gagal terhubung ke RPC: ${url} (${error.message})`);
+        }
+    }
+    throw new Error("Tidak ada endpoint RPC yang responsif.");
+};
+
+// Fungsi untuk membuat provider
+let provider = null;
+const initializeProvider = async () => {
+    try {
+        provider = await getResponsiveProvider();
+    } catch (error) {
+        console.error("❌ Gagal menginisialisasi provider RPC:", error.message);
+        process.exit(1); // Hentikan program jika tidak ada RPC yang tersedia
+    }
+};
 
 // Definisi ABI ERC-20
 const ERC20_ABI = [
@@ -28,17 +56,6 @@ const ERC20_ABI = [
     "function decimals() view returns (uint8)",
     "function symbol() view returns (string)"
 ];
-
-// Validasi koneksi ke RPC
-const validateRPCConnection = async () => {
-    try {
-        const network = await provider.getNetwork();
-        console.log(`✅ Terhubung ke jaringan: ${network.name} (${network.chainId})`);
-    } catch (error) {
-        console.error("❌ Gagal terhubung ke jaringan:", error.message);
-        process.exit(1);
-    }
-};
 
 // Fungsi untuk input data dari user
 const askQuestion = (query) => {
@@ -53,6 +70,17 @@ const askQuestion = (query) => {
             resolve(answer.trim());
         });
     });
+};
+
+// Fungsi untuk menambahkan endpoint RPC baru
+const addRPC = async () => {
+    const rpcUrl = await askQuestion("Masukkan URL endpoint RPC baru: ");
+    if (rpcUrl.startsWith("http")) {
+        RPC_URLS.push(rpcUrl);
+        console.log(`✅ Endpoint RPC baru berhasil ditambahkan: ${rpcUrl}`);
+    } else {
+        console.error("❌ URL RPC tidak valid. Silakan coba lagi.");
+    }
 };
 
 // Fungsi untuk memperbarui dan menyimpan file .env
@@ -79,14 +107,14 @@ const saveRecipientAddresses = (addresses) => {
     console.log("✅ Address penerima berhasil disimpan ke file.");
 };
 
-// Sinkronisasi Data
+// Fungsi Sinkronisasi Data
 const synchronizeData = async () => {
     if (config.privateKeys.length === 0 || config.tokenContracts.length === 0) {
         console.error("❌ Tidak ada Private Key atau Token Contract yang diinput.");
         return;
     }
 
-    console.log("🔄 Sinkronisasi data dengan jaringan TEA Sepolia...");
+    console.log("🔄 Sinkronisasi data dengan jaringan...");
     for (let i = 0; i < config.privateKeys.length; i++) {
         const privateKey = config.privateKeys[i];
         const tokenAddress = config.tokenContracts[i];
@@ -201,24 +229,27 @@ const loopTransactions = async () => {
 
 // Menu Utama
 const mainMenu = async () => {
-    await validateRPCConnection(); // Validasi koneksi RPC
+    await initializeProvider(); // Inisialisasi provider dengan endpoint RPC yang responsif
 
     while (true) {
         console.log("\nPilih opsi:");
         console.log("1. Input Private Key dan Token Contract");
         console.log("2. Input Address Penerima");
-        console.log("3. Atur dan Mulai Transaksi");
-        console.log("4. Keluar");
+        console.log("3. Tambah Endpoint RPC Baru");
+        console.log("4. Atur dan Mulai Transaksi");
+        console.log("5. Keluar");
 
         const choice = await askQuestion("Pilihan Anda: ");
         if (choice === "1") {
-            await inputPrivateKeyAndContract();
+            await inputPrivateKeyAndContract(); // Opsi untuk input private key dan token kontrak
         } else if (choice === "2") {
-            await inputRecipientAddresses();
+            await inputRecipientAddresses(); // Opsi untuk input address penerima
         } else if (choice === "3") {
-            await setTransactionSettingsAndStart();
+            await addRPC(); // Opsi untuk menambahkan endpoint RPC baru
         } else if (choice === "4") {
-            console.log("🚀 Program selesai. Sampai jumpa!");
+            await setTransactionSettingsAndStart(); // Opsi untuk mengatur dan mulai transaksi
+        } else if (choice === "5") {
+            console.log("🚀 Program selesai. Sampai jumpa!"); // Keluar dari program
             break;
         } else {
             console.error("❌ Pilihan tidak valid. Silakan coba lagi.");
@@ -229,5 +260,5 @@ const mainMenu = async () => {
 // Jalankan Program
 (async () => {
     console.log("\n🚀 Program dimulai...");
-    mainMenu();
+    mainMenu(); // Memulai program dari menu utama
 })();
